@@ -23,7 +23,7 @@ Before you begin, ensure you have the following installed:
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/your-username/Backend_Chat-Web-App.git
+   git clone https://github.com/igamanraj/Backend_Chat-Web-App.git
 2. Navigate to the project directory:
    ```bash
    cd Backend_Chat-Web-App

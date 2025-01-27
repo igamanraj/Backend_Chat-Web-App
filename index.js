@@ -7,7 +7,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: 'https://chat-app-tan-zeta.vercel.app/', // Allow frontend to connect
+    origin: 'https://chat-app-tan-zeta.vercel.app', // Allow frontend to connect
     methods: ['GET', 'POST'],
   },
 });

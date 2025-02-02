@@ -1,16 +1,36 @@
+require("dotenv").config();
 const http = require('http');
 const express = require('express');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const multer = require('multer');
+const fs = require("fs");
+
+
+// 🔹 Import AWS SDK v3 Clients
+const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: 'https://chat-app-tan-zeta.vercel.app', // Allow frontend to connect
+    origin: 'http://localhost:5173', // Allow frontend to connect
     methods: ['GET', 'POST'],
   },
 });
+
+// 🔹 Configure AWS S3 Client
+const s3 = new S3Client({
+  region: process.env.AWS_REGION,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  },
+});
+
+
+// 🔹 Multer Setup for File Uploads
+const upload = multer({ dest: "uploads/" });
 
 // Maintain a list of connected users
 const connectedUsers = [];
@@ -73,6 +93,39 @@ io.on('connection', (socket) => {
         partnerSocket.partner = null;
       }
       socket.partner = null;
+    }
+  });
+
+  // Handle image uploads to AWS S3
+  socket.on("sendImage", async (imageData, callback) => {
+    if (!socket.partner) {
+      console.log("No partner found to send the image.");
+      return callback(false);
+    }
+
+    const buffer = Buffer.from(imageData.split(",")[1], "base64");
+    const fileName = `chat-images/${Date.now()}.jpg`;
+
+    const params = {
+      Bucket: process.env.AWS_BUCKET_NAME,
+      Key: fileName,
+      Body: buffer,
+      ContentType: "image/jpeg",
+      ACL: "public-read",
+    };
+
+    try {
+      const command = new PutObjectCommand(params);
+      await s3.send(command);
+
+      const imageUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`;
+      console.log(`Image uploaded to S3: ${imageUrl}`);
+
+      io.to(socket.partner).emit("receiveImage", imageUrl);
+      callback(imageUrl);
+    } catch (err) {
+      console.error("Error uploading to S3:", err);
+      callback(false);
     }
   });
 

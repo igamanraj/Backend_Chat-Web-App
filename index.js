@@ -3,7 +3,6 @@ const http = require('http');
 const express = require('express');
 const { Server } = require('socket.io');
 const cors = require('cors');
-const multer = require('multer');
 const fs = require("fs");
 
 
@@ -13,8 +12,9 @@ const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
+  maxHttpBufferSize: 2e7, // 20MB size limit for file uploads
   cors: {
-    origin: 'http://localhost:5173', // Allow frontend to connect
+    origin: 'https://chat-app-tan-zeta.vercel.app', // Allow frontend to connect
     methods: ['GET', 'POST'],
   },
 });
@@ -27,10 +27,6 @@ const s3 = new S3Client({
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
   },
 });
-
-
-// 🔹 Multer Setup for File Uploads
-const upload = multer({ dest: "uploads/" });
 
 // Maintain a list of connected users
 const connectedUsers = [];

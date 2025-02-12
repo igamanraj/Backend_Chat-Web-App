@@ -29,9 +29,9 @@ module.exports = (server) => {
     }
 
     // Message event
-    socket.on('message', (message) => {
+    socket.on('message', ({ text, messageId }) => {
       if (socket.partner) {
-        socketServer.to(socket.partner).emit('message', message);
+        socketServer.to(socket.partner).emit('message', { text, messageId });
       }
     });
 
@@ -61,6 +61,31 @@ module.exports = (server) => {
       } catch (err) {
         console.error("Error uploading to S3:", err);
         callback(false);
+      }
+    });
+
+    // Reaction event
+    socket.on("messageReaction", ({ messageId, emoji, userId, action }) => {
+      console.log("Reaction received on server:", { messageId, emoji, userId, action }); // Debug log
+      
+      if (socket.partner) {
+        console.log("Emitting to partner:", socket.partner); // Debug log
+        
+        // Emit to both the sender and the partner
+        socketServer.to(socket.partner).emit("messageReaction", { 
+          messageId, 
+          emoji, 
+          userId, 
+          action 
+        });
+        
+        // Also emit back to sender to ensure consistency
+        socket.emit("messageReaction", {
+          messageId,
+          emoji,
+          userId,
+          action
+        });
       }
     });
 

@@ -9,10 +9,10 @@ module.exports = (server) => {
   const socketServer = io(server, {
     maxHttpBufferSize: 2e7, // 20MB size limit
     cors: {
-      origin: `${process.env.FRONTEND_URL}`,
+      origin: ['http://localhost:5173', 'https://chat-app-tan-zeta.vercel.app'],
       methods: ['GET', 'POST'],
+      credentials: true
     },
-
   });
 
   socketServer.on('connection', (socket) => {

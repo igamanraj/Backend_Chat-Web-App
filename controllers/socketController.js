@@ -29,9 +29,13 @@ module.exports = (server) => {
     }
 
     // Message event
-    socket.on('message', ({ text, messageId }) => {
+    socket.on('message', ({ text, gif, messageId }) => {
       if (socket.partner) {
-        socketServer.to(socket.partner).emit('message', { text, messageId });
+        socketServer.to(socket.partner).emit('message', { 
+          text, 
+          gif,
+          messageId 
+        });
       }
     });
 
@@ -66,10 +70,10 @@ module.exports = (server) => {
 
     // Reaction event
     socket.on("messageReaction", ({ messageId, emoji, userId, action }) => {
-      console.log("Reaction received on server:", { messageId, emoji, userId, action }); // Debug log
+     // console.log("Reaction received on server:", { messageId, emoji, userId, action }); // Debug log
       
       if (socket.partner) {
-        console.log("Emitting to partner:", socket.partner); // Debug log
+       //console.log("Emitting to partner:", socket.partner); // Debug log
         
         // Emit to both the sender and the partner
         socketServer.to(socket.partner).emit("messageReaction", { 

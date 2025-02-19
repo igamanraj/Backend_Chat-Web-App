@@ -28,14 +28,35 @@ module.exports = (server) => {
       socketServer.to(partner).emit('partnerFound');
     }
 
-    // Message event
+    // Message event with status tracking
     socket.on('message', ({ text, gif, messageId }) => {
       if (socket.partner) {
-        socketServer.to(socket.partner).emit('message', { 
-          text, 
+        const messageData = {
+          text,
           gif,
-          messageId 
-        });
+          messageId,
+          senderId: socket.id,
+          status: "sent" // Initial status when sent
+        };
+
+        // Send message to receiver
+        socketServer.to(socket.partner).emit('message', messageData);
+
+        // Notify sender that the message is sent
+        socket.emit('messageStatus', { messageId: messageData.messageId, status: "sent" });
+
+        // Simulate delivery confirmation after a short delay
+        setTimeout(() => {
+          socket.emit('messageStatus', { messageId: messageData.messageId, status: "delivered" });
+          socketServer.to(socket.partner).emit('messageStatus', { messageId: messageData.messageId, status: "delivered" });
+        }, 300);
+      }
+    });
+
+    // Handle message seen status
+    socket.on("messageSeen", ({ messageId, senderId }) => {
+      if (senderId) {
+        socketServer.to(senderId).emit("messageStatus", { messageId, status: "seen" });
       }
     });
 
@@ -70,20 +91,14 @@ module.exports = (server) => {
 
     // Reaction event
     socket.on("messageReaction", ({ messageId, emoji, userId, action }) => {
-     // console.log("Reaction received on server:", { messageId, emoji, userId, action }); // Debug log
-      
       if (socket.partner) {
-       //console.log("Emitting to partner:", socket.partner); // Debug log
-        
-        // Emit to both the sender and the partner
         socketServer.to(socket.partner).emit("messageReaction", { 
           messageId, 
           emoji, 
           userId, 
           action 
         });
-        
-        // Also emit back to sender to ensure consistency
+
         socket.emit("messageReaction", {
           messageId,
           emoji,

@@ -16,7 +16,7 @@ module.exports = (server) => {
   });
 
   socketServer.on('connection', (socket) => {
-    console.log(`User connected: ${socket.id}`);
+    console.log(`✅User connected: ${socket.id}`);
     connectedUsers.push(socket.id);
     
     // Assign random partner
@@ -28,35 +28,18 @@ module.exports = (server) => {
       socketServer.to(partner).emit('partnerFound');
     }
 
-    // Message event with status tracking
+    // Message event
     socket.on('message', ({ text, gif, messageId }) => {
       if (socket.partner) {
         const messageData = {
           text,
           gif,
           messageId,
-          senderId: socket.id,
-          status: "sent" // Initial status when sent
+          senderId: socket.id
         };
 
         // Send message to receiver
         socketServer.to(socket.partner).emit('message', messageData);
-
-        // Notify sender that the message is sent
-        socket.emit('messageStatus', { messageId: messageData.messageId, status: "sent" });
-
-        // Simulate delivery confirmation after a short delay
-        setTimeout(() => {
-          socket.emit('messageStatus', { messageId: messageData.messageId, status: "delivered" });
-          socketServer.to(socket.partner).emit('messageStatus', { messageId: messageData.messageId, status: "delivered" });
-        }, 300);
-      }
-    });
-
-    // Handle message seen status
-    socket.on("messageSeen", ({ messageId, senderId }) => {
-      if (senderId) {
-        socketServer.to(senderId).emit("messageStatus", { messageId, status: "seen" });
       }
     });
 
@@ -84,7 +67,7 @@ module.exports = (server) => {
         socketServer.to(socket.partner).emit("receiveImage", imageUrl);
         callback(imageUrl);
       } catch (err) {
-        console.error("Error uploading to S3:", err);
+        console.error("❌Error uploading to S3:", err);
         callback(false);
       }
     });
@@ -110,7 +93,7 @@ module.exports = (server) => {
 
     // Disconnect handling
     socket.on('disconnect', () => {
-      console.log(`User disconnected: ${socket.id}`);
+      console.log(`❌User disconnected: ${socket.id}`);
       connectedUsers.splice(connectedUsers.indexOf(socket.id), 1);
       if (socket.partner) {
         socketServer.to(socket.partner).emit('partnerDisconnected');

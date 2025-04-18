@@ -2,6 +2,9 @@ const { PutObjectCommand } = require("@aws-sdk/client-s3");
 const io = require("socket.io");
 const s3 = require("../config/awsConfig");
 const findPartner = require("../utils/findPartner");
+const multer = require("multer");
+const multerS3 = require("multer-s3");
+const AWS = require("aws-sdk");
 
 // Change from array to Map
 const connectedUsers = new Map();
@@ -122,30 +125,59 @@ module.exports = (server) => {
       }
     });
 
-    socket.on("sendVoice", async(audioBlob, callback) => {
-      if (!socket.partner) return callback(false);
+    // 🔹 Handle Voice Message Upload to AWS S3
+    socket.on("sendVoiceMessage", async (audioData, callback) => {
+      if (!socket.partner) return callback({ success: false, error: "No partner connected" });
     
-      const fileName = `voice-messages/${Date.now()}.webm`;
-      const params = {
-        Bucket: process.env.AWS_BUCKET_NAME,
-        Key: fileName,
-        Body: Buffer.from(audioBlob, "base64"),
-        ContentType: "audio/webm",
-        ACL: "public-read",
-      };
+      console.log("📥 Received audio data from frontend.");
     
       try {
+        const buffer = Buffer.from(audioData.split(",")[1], "base64");
+        const messageId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+        const fileName = `voice-messages/${messageId}.webm`;
+        
+        const params = {
+          Bucket: process.env.AWS_BUCKET_NAME,
+          Key: fileName,
+          Body: buffer,
+          ContentType: "audio/webm",
+          ACL: "public-read",
+        };
+      
+        console.log("🚀 Uploading voice message to S3...");
         const command = new PutObjectCommand(params);
         await s3.send(command);
     
         const audioUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`;
-        socketServer.to(socket.partner).emit("receiveVoice", audioUrl);
-        callback(audioUrl);
+        console.log(`✅ Upload successful: ${audioUrl}`);
+    
+        const messageData = {
+          type: "audio",
+          url: audioUrl,
+          messageId,
+          senderId: socket.id,
+          timestamp: new Date().toISOString()
+        };
+    
+        // Send to partner
+        socketServer.to(socket.partner).emit("receiveVoiceMessage", messageData);
+        
+        // Send success response with message data
+        callback({ 
+          success: true, 
+          messageData
+        });
       } catch (err) {
-        console.error("Error uploading voice message:", err);
-        callback(false);
+        console.error("❌ Error uploading to S3:", err);
+        callback({ 
+          success: false, 
+          error: "Failed to upload voice message",
+          details: err.message 
+        });
       }
     });
+    
+    
     
 
     // Disconnect handling - fix to use the Map correctly

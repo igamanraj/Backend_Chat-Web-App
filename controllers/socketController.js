@@ -63,9 +63,15 @@ module.exports = (server) => {
   const socketServer = io(server, {
     maxHttpBufferSize: 2e7,
     cors: {
-      origin: ['http://localhost:5173', 'http://192.168.50.233:5173'],
+      origin: [
+        'http://localhost:5173',
+        'https://chat-app-tan-zeta.vercel.app',
+        'https://chat-app-tan-zeta.vercel.app/'
+      ],
       methods: ['GET', 'POST'],
-      credentials: true
+      credentials: true,
+      allowedHeaders: ['Content-Type', 'Authorization'],
+      exposedHeaders: ['Content-Range', 'X-Content-Range']
     },
     transports: ['websocket', 'polling'],
     pingTimeout: 60000,

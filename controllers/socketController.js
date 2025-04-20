@@ -1,76 +1,168 @@
 const { PutObjectCommand } = require("@aws-sdk/client-s3");
 const io = require("socket.io");
 const s3 = require("../config/awsConfig");
-const findPartner = require("../utils/findPartner");
 const multer = require("multer");
 const multerS3 = require("multer-s3");
 const AWS = require("aws-sdk");
 
-// Change from array to Map
+// Store connected users and their states
 const connectedUsers = new Map();
+// Store users waiting for partners
+const waitingUsers = new Set();
+
+// Function to find a random partner
+const findRandomPartner = (currentUserId) => {
+  const availableUsers = Array.from(waitingUsers).filter(id => id !== currentUserId);
+  if (availableUsers.length === 0) return null;
+  
+  // Get random user from available users
+  const randomIndex = Math.floor(Math.random() * availableUsers.length);
+  return availableUsers[randomIndex];
+};
+
+// Function to connect two users
+const connectUsers = (socketServer, user1Id, user2Id) => {
+  const user1 = connectedUsers.get(user1Id);
+  const user2 = connectedUsers.get(user2Id);
+
+  if (!user1 || !user2) return false;
+
+  // Update both users' partner references
+  user1.partner = user2Id;
+  user2.partner = user1Id;
+
+  // Remove both from waiting list
+  waitingUsers.delete(user1Id);
+  waitingUsers.delete(user2Id);
+
+  // Notify both users
+  socketServer.to(user1Id).emit('partnerFound');
+  socketServer.to(user2Id).emit('partnerFound');
+
+  console.log(`🤝 Partners connected: ${user1Id} <-> ${user2Id}`);
+  return true;
+};
+
+// Function to disconnect partners
+const disconnectPartners = (socketServer, userId) => {
+  const user = connectedUsers.get(userId);
+  if (!user || !user.partner) return;
+
+  const partnerId = user.partner;
+  const partner = connectedUsers.get(partnerId);
+
+  if (partner) {
+    partner.partner = null;
+    socketServer.to(partnerId).emit('partnerDisconnected');
+  }
+
+  user.partner = null;
+};
 
 module.exports = (server) => {
   const socketServer = io(server, {
-    maxHttpBufferSize: 2e7, // 20MB size limit
+    maxHttpBufferSize: 2e7,
     cors: {
-      origin: ['http://localhost:5173', 'https://chat-app-tan-zeta.vercel.app'],
+      origin: ['http://localhost:5173', 'http://192.168.50.233:5173'],
       methods: ['GET', 'POST'],
       credentials: true
     },
+    transports: ['websocket', 'polling'],
+    pingTimeout: 60000,
+    pingInterval: 25000
   });
 
   socketServer.on('connection', (socket) => {
     console.log(`✅ User connected: ${socket.id}`);
 
-    // Store socket in the Map with additional info
+    // Initialize user in the connected users map
     connectedUsers.set(socket.id, {
       id: socket.id,
       partner: null,
       lastActive: Date.now()
     });
 
-    // Assign random partner using your existing function
-    // We'll need to update the partner references too
-    let partner = findPartner(socket.id, Array.from(connectedUsers.keys()), socketServer);
+    // Add user to waiting list
+    waitingUsers.add(socket.id);
 
+    // Try to find a partner immediately
+    const partner = findRandomPartner(socket.id);
     if (partner) {
-      // Update both users' partner reference
-      const userInfo = connectedUsers.get(socket.id);
-      const partnerInfo = connectedUsers.get(partner);
-
-      if (userInfo && partnerInfo) {
-        userInfo.partner = partner;
-        partnerInfo.partner = socket.id;
-
-        // Keep the socket.partner for backward compatibility
-        socket.partner = partner;
-        socketServer.sockets.sockets.get(partner).partner = socket.id;
-
-        // Notify both users
-        socketServer.to(socket.id).emit('partnerFound');
-        socketServer.to(partner).emit('partnerFound');
-      }
+      connectUsers(socketServer, socket.id, partner);
     }
 
-    // Message event - no changes needed
-    socket.on('message', ({ text, gif, messageId }) => {
-      if (socket.partner) {
-        const messageData = {
-          text,
-          gif,
-          messageId,
-          senderId: socket.id
-        };
+    // Handle disconnection
+    socket.on('disconnect', (reason) => {
+      console.log(`❌ User disconnected: ${socket.id}, Reason: ${reason}`);
+      
+      const user = connectedUsers.get(socket.id);
+      if (user && user.partner) {
+        disconnectPartners(socketServer, socket.id);
+      }
+      
+      waitingUsers.delete(socket.id);
+      connectedUsers.delete(socket.id);
+      
+      console.log(`👥 Total users connected: ${connectedUsers.size}`);
+    });
 
-        // Send message to receiver
-        socketServer.to(socket.partner).emit('message', messageData);
+    // Handle skip partner request
+    socket.on('disconnectFromPartner', () => {
+      disconnectPartners(socketServer, socket.id);
+    });
+
+    // Handle find new partner request
+    socket.on('findNewPartner', () => {
+      const user = connectedUsers.get(socket.id);
+      if (!user) return;
+
+      // Add user to waiting list
+      waitingUsers.add(socket.id);
+
+      // Try to find a new partner
+      const newPartner = findRandomPartner(socket.id);
+      if (newPartner) {
+        connectUsers(socketServer, socket.id, newPartner);
       }
     });
 
-    // Image Upload to S3 - no changes needed
-    socket.on("sendImage", async (imageData, callback) => {
-      if (!socket.partner) return callback(false);
+    // Message handling
+    socket.on('message', ({ text, gif, messageId }) => {
+      const user = connectedUsers.get(socket.id);
+      if (!user || !user.partner) return;
 
+      const messageData = {
+        text,
+        gif,
+        messageId,
+        senderId: socket.id
+      };
+
+      socketServer.to(user.partner).emit('message', messageData);
+    });
+
+    // Typing indicator
+    socket.on('typing', (isTyping) => {
+      const user = connectedUsers.get(socket.id);
+      if (!user || !user.partner) return;
+
+      socketServer.to(user.partner).emit('partnerTyping', isTyping);
+    });
+
+    // Message reactions
+    socket.on("messageReaction", ({ messageId, emoji, userId, action }) => {
+      const user = connectedUsers.get(socket.id);
+      if (!user || !user.partner) return;
+
+      const reactionData = { messageId, emoji, userId, action };
+      socketServer.to(user.partner).emit("messageReaction", reactionData);
+      socket.emit("messageReaction", reactionData);
+    });
+
+    // Image handling
+    socket.on("sendImage", async (imageData, callback) => {
+      const user = connectedUsers.get(socket.id);
+      if (!user || !user.partner) return callback(false);
 
       const buffer = Buffer.from(imageData.split(",")[1], "base64");
       const fileName = `chat-images/${Date.now()}.jpg`;
@@ -89,7 +181,7 @@ module.exports = (server) => {
 
         const imageUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`;
         console.log(`Image uploaded to S3: ${imageUrl}`);
-        socketServer.to(socket.partner).emit("receiveImage", imageUrl);
+        socketServer.to(user.partner).emit("receiveImage", imageUrl);
         callback(imageUrl);
       } catch (err) {
         console.error("Error uploading to S3:", err);
@@ -97,39 +189,10 @@ module.exports = (server) => {
       }
     });
 
-    // Typing event - fix to use the Map correctly
-    socket.on('typing', (isTyping) => {
-      // Get user from Map
-      const userInfo = connectedUsers.get(socket.id);
-      if (!userInfo || !userInfo.partner) return;
-
-      socketServer.to(userInfo.partner).emit('partnerTyping', isTyping);
-    });
-
-    // Reaction event - no changes needed
-    socket.on("messageReaction", ({ messageId, emoji, userId, action }) => {
-      if (socket.partner) {
-        socketServer.to(socket.partner).emit("messageReaction", {
-          messageId,
-          emoji,
-          userId,
-          action
-        });
-
-        socket.emit("messageReaction", {
-          messageId,
-          emoji,
-          userId,
-          action
-        });
-      }
-    });
-
-    // 🔹 Handle Voice Message Upload to AWS S3
+    // Voice message handling
     socket.on("sendVoiceMessage", async (audioData, callback) => {
-      if (!socket.partner) return callback({ success: false, error: "No partner connected" });
-    
-      console.log("📥 Received audio data from frontend.");
+      const user = connectedUsers.get(socket.id);
+      if (!user || !user.partner) return callback({ success: false, error: "No partner connected" });
     
       try {
         const buffer = Buffer.from(audioData.split(",")[1], "base64");
@@ -144,13 +207,11 @@ module.exports = (server) => {
           ACL: "public-read",
         };
       
-        console.log("🚀 Uploading voice message to S3...");
         const command = new PutObjectCommand(params);
         await s3.send(command);
     
         const audioUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`;
-        console.log(`✅ Upload successful: ${audioUrl}`);
-    
+        
         const messageData = {
           type: "audio",
           url: audioUrl,
@@ -159,49 +220,15 @@ module.exports = (server) => {
           timestamp: new Date().toISOString()
         };
     
-        // Send to partner
-        socketServer.to(socket.partner).emit("receiveVoiceMessage", messageData);
-        
-        // Send success response with message data
-        callback({ 
-          success: true, 
-          messageData
-        });
+        socketServer.to(user.partner).emit("receiveVoiceMessage", messageData);
+        callback({ success: true, messageData });
       } catch (err) {
-        console.error("❌ Error uploading to S3:", err);
+        console.error("Error uploading voice message:", err);
         callback({ 
           success: false, 
           error: "Failed to upload voice message",
           details: err.message 
         });
-      }
-    });
-    
-    
-    
-
-    // Disconnect handling - fix to use the Map correctly
-    socket.on('disconnect', () => {
-      console.log(`❌ User disconnected: ${socket.id}`);
-
-      // Get user info before removing
-      const userInfo = connectedUsers.get(socket.id);
-
-      // Remove from Map
-      connectedUsers.delete(socket.id);
-
-      // Notify partner
-      if (userInfo && userInfo.partner) {
-        socketServer.to(userInfo.partner).emit('partnerDisconnected');
-
-        // Also update partner's reference
-        const partnerInfo = connectedUsers.get(userInfo.partner);
-        if (partnerInfo) {
-          partnerInfo.partner = null;
-        }
-
-        // Send typing=false to partner
-        socketServer.to(userInfo.partner).emit('partnerTyping', false);
       }
     });
   });

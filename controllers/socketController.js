@@ -65,8 +65,8 @@ module.exports = (server) => {
     cors: {
       origin: [
         'http://localhost:5173',
-        'https://chat-app-tan-zeta.vercel.app',
-        'https://chat-app-tan-zeta.vercel.app/'
+        'https://chatapp-io.vercel.app',
+        'https://chatapp-io.vercel.app/',
       ],
       methods: ['GET', 'POST'],
       credentials: true,

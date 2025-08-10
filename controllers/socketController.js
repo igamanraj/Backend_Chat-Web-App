@@ -64,9 +64,11 @@ module.exports = (server) => {
     maxHttpBufferSize: 2e7,
     cors: {
       origin: [
-        'http://localhost:5173',
+        'http://localhost:3000',
         'https://chatapp-io.vercel.app',
         'https://chatapp-io.vercel.app/',
+        'https://chat-app-next-js-xi.vercel.app',
+        'https://chat-app-next-js-xi.vercel.app/',
       ],
       methods: ['GET', 'POST'],
       credentials: true,
